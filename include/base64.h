@@ -17,21 +17,39 @@
 
 namespace base64 {
 
+enum class mode_t {
+    standard,
+    url_safe
+};
+
+template <mode_t mode = mode_t::standard>
 static std::size_t encoded_length(const void* buffer, std::size_t length) noexcept {
 #ifdef _DEBUG
     assert(buffer);
 #endif
     std::ignore = buffer;
-    return (length + 2) / 3 * 4;
+    if constexpr (mode == mode_t::standard) {
+        return (length + 2) / 3 * 4;
+    } else {
+        std::size_t t = length % 3;
+        return (length / 3) * 4 + (t == 0 ? 0 : t + 1);
+    }
 }
 
+template <mode_t mode = mode_t::standard>
 static std::size_t encode(const void* buffer, std::size_t length, char (&result)[N]) noexcept {
 #ifdef _DEBUG
     assert(buffer);
 #endif
     static_assert(N > 0);
-    const char kCharMap[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::size_t size = encoded_length(buffer, length);
+    const char* kCharMap = []() consteval -> const char* {
+        if constexpr (mode == mode_t::standard) {
+            return R"(ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/)";
+        } else {
+            return R"(ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_)";
+        }
+    }();
+    std::size_t size = encoded_length<mode>(buffer, length);
     if (size >= N) {
         return size;
     }
@@ -49,17 +67,22 @@ static std::size_t encode(const void* buffer, std::size_t length, char (&result)
         result[size++] = kCharMap[(bufptr[0] & 0xfc) >> 2];
         result[size++] = kCharMap[(bufptr[0] & 0x03) << 4 | (bufptr[1] & 0xf0) >> 4];
         result[size++] = kCharMap[(bufptr[1] & 0x0f) << 2];
-        result[size++] = '=';
+        if constexpr (mode == mode_t::standard) {
+            result[size++] = '=';
+        }
     } else if (length >= 1) {
         result[size++] = kCharMap[(bufptr[0] & 0xfc) >> 2];
         result[size++] = kCharMap[(bufptr[0] & 0x03) << 4];
-        result[size++] = '=';
-        result[size++] = '=';
+        if constexpr (mode == mode_t::standard) {
+            result[size++] = '=';
+            result[size++] = '=';
+        }
     }
     result[size] = '\0';
     return size;
 }
 
+template <mode_t mode = mode_t::standard>
 static std::size_t decoded_length(const char* str, std::size_t length) {
 #ifdef _DEBUG
     assert(str);
@@ -67,37 +90,64 @@ static std::size_t decoded_length(const char* str, std::size_t length) {
     if (length == 0) {
         return 0;
     }
-    if (length % 4 != 0) {
-        throw std::exception();
+    std::size_t t = length % 4;
+    if constexpr (mode == mode_t::standard) {
+        if (t != 0) {
+            throw std::exception();
+        }
+    } else {
+        if (t == 1) {
+            throw std::exception();
+        }
     }
     const auto is_valid = [](char c) -> bool {
-        return std::strchr("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", c) != nullptr;
-    };
-    const auto is_trail = [](char c) -> bool {
-        return c == '=';
+        const char* kCharMap = []() consteval -> const char* {
+            if constexpr (mode == mode_t::standard) {
+                return R"(ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/)";
+            } else {
+                return R"(ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_)";
+            }
+        }();
+        return std::strchr(kCharMap, c) != nullptr;
     };
     std::size_t i = 0;
     while (i < length && is_valid(str[i])) {
         ++i;
     };
-    std::size_t j = i;
-    while (j < length && is_trail(str[j])) {
-        ++j;
-    };
-    if (j != length || (j - i) > 2) {
-        throw std::exception();
+    if constexpr (mode == mode_t::standard) {
+        const auto is_trail = [](char c) -> bool {
+            return c == '=';
+        };
+        std::size_t j = i;
+        while (j < length && is_trail(str[j])) {
+            ++j;
+        };
+        if (j != length || (j - i) > 2) {
+            throw std::exception();
+        }
+        return length / 4 * 3 - (j - i);
+    } else {
+        if (i != length) {
+            throw std::exception();
+        }
+        return length / 4 * 3 + (t == 0 ? 0 : t - 1);
     }
-    return length / 4 * 3 - (j - i);
 }
 
-template <std::size_t N>
+template <mode_t mode = mode_t::standard, std::size_t N>
 static std::size_t decode(const char* str, std::size_t length, char (&result)[N]) {
 #ifdef _DEBUG
     assert(str);
 #endif
     static_assert(N > 0);
     const auto strmap = [](char c) -> char {
-        const char kCharMap[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        const char* kCharMap = []() consteval -> const char* {
+            if constexpr (mode == mode_t::standard) {
+                return R"(ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/)";
+            } else {
+                return R"(ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_)";
+            }
+        }();
         const char* pos = std::strchr(kCharMap, c);
         if (!pos) {
             throw std::exception();
@@ -122,9 +172,11 @@ static std::size_t decode(const char* str, std::size_t length, char (&result)[N]
         length -= 4;
     };
     if (length >= 2) {
-        while (length > 2 && str[length - 1] == '=') {
-            --length;
-        };
+        if constexpr (mode == mode_t::standard) {
+            while (length > 2 && str[length - 1] == '=') {
+                --length;
+            };
+        }
         char buffer[4]{};
         for (std::size_t i = 0; i < length; ++i) {
             buffer[i] = strmap(*str++);
@@ -145,19 +197,20 @@ static std::size_t decode(const char* str, std::size_t length, char (&result)[N]
     return size;
 }
 
+template <mode_t mode = mode_t::standard>
 static std::size_t decoded_length(const char* str) {
 #ifdef _DEBUG
     assert(str);
 #endif
-    return decoded_length(str, std::strlen(str));
+    return decoded_length<mode>(str, std::strlen(str));
 }
 
-template <std::size_t N>
+template <mode_t mode = mode_t::standard, std::size_t N>
 static std::size_t decode(const char* str, char (&result)[N]) {
 #ifdef _DEBUG
     assert(str);
 #endif
-    return decode(str, std::strlen(str), result);
+    return decode<mode>(str, std::strlen(str), result);
 }
 
 } // namespace base64
