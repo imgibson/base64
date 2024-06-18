@@ -36,7 +36,7 @@ static std::size_t encoded_length(const void* buffer, std::size_t length) noexce
     }
 }
 
-template <mode_t mode = mode_t::standard>
+template <mode_t mode = mode_t::standard, std::size_t N>
 static std::size_t encode(const void* buffer, std::size_t length, char (&result)[N]) noexcept {
 #ifdef _DEBUG
     assert(buffer);
@@ -183,7 +183,7 @@ static std::size_t decode(const char* str, std::size_t length, char (&result)[N]
         }
         if (length >= 4) {
             append(buffer[0] << 2 | buffer[1] >> 4);
-            append(buffer[1] << 4 | buffer[2] >> 2)
+            append(buffer[1] << 4 | buffer[2] >> 2);
             append(buffer[2] << 6 | buffer[3]);
         } else if (length >= 3) {
             append(buffer[0] << 2 | buffer[1] >> 4);
